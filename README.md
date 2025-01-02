@@ -1,4 +1,4 @@
-# Modularizing Terraform Projects
+# Modularize Terraform Project
 
 This project demonstrates how to modularize Terraform configurations by dividing resources into reusable modules. Modularizing Terraform projects improves readability, maintainability, and reusability of your infrastructure code.
 
@@ -20,7 +20,7 @@ This project modularizes a Terraform setup by creating two modules:
 
 ## Steps to Modularize Terraform Resources
 
-### Step 1: Extract Providers, Variables, and Outputs to Separate Files
+### Step 1: Move Providers, Variables, and Outputs to Separate Files
 1. Create the following files for organization:
    - `providers.tf`: Define Terraform providers.
    - `variables.tf`: Define all input variables.
@@ -40,7 +40,7 @@ terraform {
 }
 
 provider "aws" {
-  region = "eu-central-1"
+  region = "us-east-1"
 }
 ```
 
@@ -70,7 +70,7 @@ Move all remaining resources and data definitions into `main.tf`.
 
 ---
 
-### Step 2: Create Empty Folder and File Structure for Modules
+### Step 2: Create Folder Structure for Modules
 1. Create a `modules` directory with subdirectories for each module.
 2. Set up `main.tf`, `variables.tf`, and `outputs.tf` for each module.
 
@@ -87,7 +87,7 @@ touch modules/webserver/{main.tf,variables.tf,outputs.tf}
 
 ---
 
-### Step 3: Extract Subnet-Related Resources
+### Step 3: Move resources related to Subnet
 1. Move subnet-related resources from `main.tf` to `modules/subnet/main.tf`.
 2. Replace references to parent resources with variables in `modules/subnet/variables.tf`.
 
@@ -154,7 +154,7 @@ module "myapp-subnet" {
 
 ---
 
-### Step 5: Add Module Outputs to Fix Broken References
+### Step 5: Specify module outputs to fix any broken references
 1. Add outputs for resources in the `subnet` module.
 2. Reference these outputs in the root module.
 
@@ -224,7 +224,7 @@ module "myapp-server" {
 
 ---
 
-### Step 8: Adjust Outputs
+### Step 8: Specify Output references
 Update `outputs.tf` to reference outputs from the webserver module.
 
 #### `modules/webserver/outputs.tf`

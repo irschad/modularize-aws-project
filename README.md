@@ -1,24 +1,8 @@
-# Modularize AWS Infrastructure with Terraform
+# Modularizing Terraform Projects
 
-## GitHub Repository
-[Modularize AWS Project Repository](https://github.com/irschad/modularize-aws-project)
+This project demonstrates how to modularize Terraform configurations by dividing resources into reusable modules. Modularizing Terraform projects improves readability, maintainability, and reusability of your infrastructure code.
 
-This project demonstrates how to modularize AWS infrastructure provisioning with Terraform. By dividing resources into reusable modules, the configuration is more organized, maintainable, and scalable.
-
----
-
-## Project Overview
-### Objectives
-1. **Modularization:** Separate Terraform resources into reusable modules.
-2. **Infrastructure Automation:** Provision AWS infrastructure for subnets and EC2 instances.
-3. **Dockerized Application Deployment:** Launch a web server using Docker running on an EC2 instance.
-
-### Key Features
-- **Subnet Module:** Automates the creation of a subnet, internet gateway, and route table.
-- **Web Server Module:** Automates the setup of an EC2 instance, security group, and associated configurations.
-- **Custom Scripts:** Includes a bash script for Docker installation and container deployment.
-
-### Technologies Used
+## Technologies Used
 - **Terraform**
 - **AWS**
 - **Docker**
@@ -27,182 +11,254 @@ This project demonstrates how to modularize AWS infrastructure provisioning with
 
 ---
 
-## Folder Structure
-
-### Root Directory
-- **main.tf:** Root configuration for calling modules and setting up the VPC.
-- **variables.tf:** Centralized variable declarations.
-- **outputs.tf:** Root-level outputs for the infrastructure.
-- **providers.tf:** AWS provider configuration.
-- **entry-script.sh:** Shell script for setting up the web server with Docker.
-
-### Modules
-1. **Subnet Module:**
-   - **Location:** `modules/subnet`
-   - Files: `main.tf`, `variables.tf`, `outputs.tf`
-   - Provisions a subnet, internet gateway, and default route table.
-
-2. **Web Server Module:**
-   - **Location:** `modules/webserver`
-   - Files: `main.tf`, `variables.tf`, `outputs.tf`
-   - Provisions an EC2 instance, security group, and key pair.
+## Project Description
+This project modularizes a Terraform setup by creating two modules:
+1. **Subnet Module**: Responsible for subnet-related resources.
+2. **Webserver Module**: Responsible for EC2 instance-related resources.
 
 ---
 
-## Detailed Breakdown
+## Steps to Modularize Terraform Resources
 
-### Subnet Module
-**File:** `modules/subnet/main.tf`
+### Step 1: Extract Providers, Variables, and Outputs to Separate Files
+1. Create the following files for organization:
+   - `providers.tf`: Define Terraform providers.
+   - `variables.tf`: Define all input variables.
+   - `outputs.tf`: Define output variables.
+
+**Example Code:**
+
+#### `providers.tf`
+```hcl
+terraform {
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+      version = "4.67.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = "eu-central-1"
+}
+```
+
+#### `variables.tf`
+```hcl
+variable "env_prefix" {}
+variable "avail_zone" {}
+variable "vpc_cidr_block" {}
+variable "subnet_cidr_block" {}
+variable "my_ip" {}
+variable "instance_type" {}
+variable "public_key_location" {}
+```
+
+#### `outputs.tf`
+```hcl
+output "aws_ami_id" {
+  value = data.aws_ami.latest-amazon-linux-image.id
+}
+
+output "ec2_public_ip" {
+  value = aws_instance.myapp-server.public_ip
+}
+```
+
+Move all remaining resources and data definitions into `main.tf`.
+
+---
+
+### Step 2: Create Empty Folder and File Structure for Modules
+1. Create a `modules` directory with subdirectories for each module.
+2. Set up `main.tf`, `variables.tf`, and `outputs.tf` for each module.
+
+**Commands:**
+```bash
+mkdir -p modules/subnet modules/webserver
+
+# Subnet module
+touch modules/subnet/{main.tf,variables.tf,outputs.tf}
+
+# Webserver module
+touch modules/webserver/{main.tf,variables.tf,outputs.tf}
+```
+
+---
+
+### Step 3: Extract Subnet-Related Resources
+1. Move subnet-related resources from `main.tf` to `modules/subnet/main.tf`.
+2. Replace references to parent resources with variables in `modules/subnet/variables.tf`.
+
+**Example:**
+
+#### `modules/subnet/main.tf`
 ```hcl
 resource "aws_subnet" "myapp-subnet-1" {
-    vpc_id            = var.vpc_id
-    cidr_block        = var.subnet_cidr_block
-    availability_zone = var.avail_zone
-    tags = {
-        Name = "${var.env_prefix}-subnet-1"
-    }
+  vpc_id = var.vpc_id
+  cidr_block = var.subnet_cidr_block
+  availability_zone = var.avail_zone
+  tags = {
+    Name = "${var.env_prefix}-subnet-1"
+  }
 }
 
 resource "aws_internet_gateway" "myapp-igw" {
-    vpc_id = var.vpc_id
-    tags = {
-        Name = "${var.env_prefix}-igw"
-    }
+  vpc_id = var.vpc_id
+  tags = {
+    Name = "${var.env_prefix}-igw"
+  }
 }
 
 resource "aws_default_route_table" "main-rtb" {
-    default_route_table_id = var.default_route_table_id
-
-    route {
-        cidr_block = "0.0.0.0/0"
-        gateway_id = aws_internet_gateway.myapp-igw.id
-    }
-    tags = {
-        Name = "${var.env_prefix}-main-rtb"
-    }
+  default_route_table_id = var.default_route_table_id
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.myapp-igw.id
+  }
+  tags = {
+    Name = "${var.env_prefix}-main-rtb"
+  }
 }
 ```
 
-**File:** `modules/subnet/variables.tf`
+#### `modules/subnet/variables.tf`
 ```hcl
-variable env_prefix {}
-variable avail_zone {}
-variable subnet_cidr_block {}
-variable vpc_id {}
-variable default_route_table_id {}
+variable "env_prefix" {}
+variable "avail_zone" {}
+variable "subnet_cidr_block" {}
+variable "vpc_id" {}
+variable "default_route_table_id" {}
 ```
 
-**File:** `modules/subnet/outputs.tf`
+---
+
+### Step 4: Reference the Subnet Module
+1. Add a `module` block to reference the subnet module in `main.tf`.
+
+**Example:**
+
+#### `main.tf`
+```hcl
+module "myapp-subnet" {
+  source = "./modules/subnet"
+
+  env_prefix = var.env_prefix
+  avail_zone = var.avail_zone
+  subnet_cidr_block = var.subnet_cidr_block
+  vpc_id = aws_vpc.myapp-vpc.id
+  default_route_table_id = aws_vpc.myapp-vpc.default_route_table_id
+}
+```
+
+---
+
+### Step 5: Add Module Outputs to Fix Broken References
+1. Add outputs for resources in the `subnet` module.
+2. Reference these outputs in the root module.
+
+**Example:**
+
+#### `modules/subnet/outputs.tf`
 ```hcl
 output "subnet" {
   value = aws_subnet.myapp-subnet-1
 }
 ```
 
-### Web Server Module
-**File:** `modules/webserver/main.tf`
+#### `main.tf`
 ```hcl
-resource "aws_default_security_group" "default-sg" {
-    vpc_id = var.vpc_id
-
-    ingress {
-        from_port   = 22
-        to_port     = 22
-        protocol    = "tcp"
-        cidr_blocks = [var.my_ip]
-    }
-
-    ingress {
-        from_port   = 8080
-        to_port     = 8080
-        protocol    = "tcp"
-        cidr_blocks = ["0.0.0.0/0"]
-    }
-
-    egress {
-        from_port   = 0
-        to_port     = 0
-        protocol    = "-1"
-        cidr_blocks = ["0.0.0.0/0"]
-    }
-
-    tags = {
-        Name = "${var.env_prefix}-default-sg"
-    }
-}
-
 resource "aws_instance" "myapp-server" {
-    ami                         = data.aws_ami.latest-amazon-linux-image.id
-    instance_type               = var.instance_type
-    subnet_id                   = var.subnet_id
-    vpc_security_group_ids      = [aws_default_security_group.default-sg.id]
-    availability_zone           = var.avail_zone
-    associate_public_ip_address = true
-    key_name                    = aws_key_pair.ssh-key.key_name
-
-    user_data                  = file("entry-script.sh")
-    user_data_replace_on_change = true
-
-    tags = {
-        Name = "${var.env_prefix}-server"
-    }
+  subnet_id = module.myapp-subnet.subnet.id
 }
 ```
 
-**File:** `modules/webserver/variables.tf`
+---
+
+### Step 6: Create the Webserver Module
+1. Extract EC2-related resources into the `webserver` module.
+2. Define required variables and outputs.
+
+**Example:**
+
+#### `modules/webserver/main.tf`
 ```hcl
-variable env_prefix {}
-variable avail_zone {}
-variable my_ip {}
-variable instance_type {}
-variable public_key_location {}
-variable vpc_id {}
-variable image_name {}
-variable subnet_id {}
+resource "aws_instance" "myapp-server" {
+  ami = data.aws_ami.latest-amazon-linux-image.id
+  instance_type = var.instance_type
+  subnet_id = var.subnet_id
+  vpc_security_group_ids = [aws_default_security_group.default-sg.id]
+  key_name = aws_key_pair.ssh-key.key_name
+  tags = {
+    Name = "${var.env_prefix}-server"
+  }
+}
 ```
 
-**File:** `modules/webserver/outputs.tf`
+#### `modules/webserver/variables.tf`
+```hcl
+variable "env_prefix" {}
+variable "subnet_id" {}
+variable "instance_type" {}
+variable "public_key_location" {}
+```
+
+---
+
+### Step 7: Reference the Webserver Module
+Add a `module` block to the root `main.tf` to reference the `webserver` module.
+
+**Example:**
+
+#### `main.tf`
+```hcl
+module "myapp-server" {
+  source = "./modules/webserver"
+  env_prefix = var.env_prefix
+  subnet_id = module.myapp-subnet.subnet.id
+  instance_type = var.instance_type
+  public_key_location = var.public_key_location
+}
+```
+
+---
+
+### Step 8: Adjust Outputs
+Update `outputs.tf` to reference outputs from the webserver module.
+
+#### `modules/webserver/outputs.tf`
 ```hcl
 output "instance" {
   value = aws_instance.myapp-server
 }
 ```
 
+#### `outputs.tf`
+```hcl
+output "ec2_public_ip" {
+  value = module.myapp-server.instance.public_ip
+}
+```
+
 ---
 
-## Steps to Run the Project
-
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/irschad/modularize-aws-project.git
-   cd modularize-aws-project
-   ```
-
-2. **Initialize Terraform**
+### Step 9: Apply the Configuration Changes
+1. Reinitialize Terraform to incorporate module changes:
    ```bash
    terraform init
    ```
-
-3. **Plan the Configuration**
+2. Validate and apply the changes:
    ```bash
    terraform plan
+   terraform apply --auto-approve
    ```
 
-4. **Apply the Configuration**
+---
+
+### Step 10: SSH into the EC2 Instance
+1. Use the public IP to access the EC2 instance.
+2. Verify Docker and nginx are running:
    ```bash
-   terraform apply
-   ```
-
-5. **Access the Deployed Application**
-   Retrieve the public IP of the EC2 instance from the outputs and access it via the browser on port 8080.
-
----
-
-## Outputs
-- **Subnet ID:** Outputs the ID of the created subnet.
-- **EC2 Public IP:** Outputs the public IP of the deployed EC2 instance.
-
----
-
-
-
+   docker ps
+   

@@ -34,40 +34,32 @@ terraform {
   required_providers {
     aws = {
       source = "hashicorp/aws"
-      version = "4.67.0"
+      version = "~> 5.0"
     }
   }
 }
 
-provider "aws" {
-  region = "us-east-1"
-}
 ```
 
 #### `variables.tf`
 ```hcl
-variable "env_prefix" {}
-variable "avail_zone" {}
-variable "vpc_cidr_block" {}
-variable "subnet_cidr_block" {}
-variable "my_ip" {}
-variable "instance_type" {}
-variable "public_key_location" {}
+variable env_prefix {}
+variable avail_zone {}
+variable vpc_cidr_block {}
+variable subnet_cidr_block {}
+variable my_ip {}
+variable instance_type {}
+variable public_key_location {}
+variable image_name {}
 ```
 
 #### `outputs.tf`
 ```hcl
-output "aws_ami_id" {
-  value = data.aws_ami.latest-amazon-linux-image.id
-}
 
 output "ec2_public_ip" {
   value = aws_instance.myapp-server.public_ip
 }
 ```
-
-Move all remaining resources and data definitions into `main.tf`.
-
 ---
 
 ### Step 2: Create Folder Structure for Modules
@@ -95,31 +87,32 @@ touch modules/webserver/{main.tf,variables.tf,outputs.tf}
 
 #### `modules/subnet/main.tf`
 ```hcl
-resource "aws_subnet" "myapp-subnet-1" {
-  vpc_id = var.vpc_id
-  cidr_block = var.subnet_cidr_block
-  availability_zone = var.avail_zone
-  tags = {
-    Name = "${var.env_prefix}-subnet-1"
-  }
+esource "aws_subnet" "myapp-subnet-1" {
+    vpc_id = var.vpc_id
+    cidr_block = var.subnet_cidr_block
+    availability_zone = var.avail_zone
+    tags = {
+        Name = "${var.env_prefix}-subnet-1"
+    }
 }
 
 resource "aws_internet_gateway" "myapp-igw" {
-  vpc_id = var.vpc_id
-  tags = {
-    Name = "${var.env_prefix}-igw"
-  }
+    vpc_id = var.vpc_id
+    tags = {
+        Name = "${var.env_prefix}-igw"
+    }
 }
 
 resource "aws_default_route_table" "main-rtb" {
-  default_route_table_id = var.default_route_table_id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.myapp-igw.id
-  }
-  tags = {
-    Name = "${var.env_prefix}-main-rtb"
-  }
+    default_route_table_id = var.default_route_table_id
+
+    route {
+        cidr_block = "0.0.0.0/0"
+        gateway_id = aws_internet_gateway.myapp-igw.id
+    }
+    tags = {
+        Name = "${var.env_prefix}-main-rtb"
+    }
 }
 ```
 
@@ -135,7 +128,7 @@ variable "default_route_table_id" {}
 ---
 
 ### Step 4: Reference the Subnet Module
-1. Add a `module` block to reference the subnet module in `main.tf`.
+1. Add a `module` block to reference the subnet module in project's `main.tf`.
 
 **Example:**
 
@@ -143,10 +136,9 @@ variable "default_route_table_id" {}
 ```hcl
 module "myapp-subnet" {
   source = "./modules/subnet"
-
-  env_prefix = var.env_prefix
-  avail_zone = var.avail_zone
   subnet_cidr_block = var.subnet_cidr_block
+  avail_zone = var.avail_zone
+  env_prefix = var.env_prefix
   vpc_id = aws_vpc.myapp-vpc.id
   default_route_table_id = aws_vpc.myapp-vpc.default_route_table_id
 }
@@ -168,10 +160,10 @@ output "subnet" {
 ```
 
 #### `main.tf`
+Refer the module output for subnet id
+
 ```hcl
-resource "aws_instance" "myapp-server" {
   subnet_id = module.myapp-subnet.subnet.id
-}
 ```
 
 ---
@@ -184,24 +176,84 @@ resource "aws_instance" "myapp-server" {
 
 #### `modules/webserver/main.tf`
 ```hcl
+resource "aws_default_security_group" "default-sg" {
+    vpc_id = var.vpc_id
+
+    ingress {
+        from_port = 22
+        to_port = 22
+        protocol = "tcp"
+        cidr_blocks = [var.my_ip]
+    }
+
+    ingress {
+        from_port = 8080
+        to_port = 8080
+        protocol = "tcp"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
+
+    egress {
+        from_port = 0
+        to_port = 0
+        protocol = "-1"
+        cidr_blocks = ["0.0.0.0/0"]
+        prefix_list_ids = []
+    }
+
+    tags = {
+        Name = "${var.env_prefix}-default-sg"
+    }
+}
+
+data "aws_ami" "latest-amazon-linux-image" {
+    most_recent = true
+    owners = ["amazon"]
+    filter {
+        name = "name"
+        values = [var.image_name]
+    }
+    filter {
+        name = "virtualization-type"
+        values = ["hvm"]
+    }
+}
+
+resource "aws_key_pair" "ssh-key" {
+    key_name = "server-key"
+    public_key = file(var.public_key_location)
+}
+
 resource "aws_instance" "myapp-server" {
-  ami = data.aws_ami.latest-amazon-linux-image.id
-  instance_type = var.instance_type
-  subnet_id = var.subnet_id
-  vpc_security_group_ids = [aws_default_security_group.default-sg.id]
-  key_name = aws_key_pair.ssh-key.key_name
-  tags = {
-    Name = "${var.env_prefix}-server"
-  }
+    ami = data.aws_ami.latest-amazon-linux-image.id
+    instance_type = var.instance_type
+
+    subnet_id = var.subnet_id
+    vpc_security_group_ids = [aws_default_security_group.default-sg.id]
+    availability_zone = var.avail_zone
+
+    associate_public_ip_address = true
+    key_name = aws_key_pair.ssh-key.key_name
+
+    user_data = file("entry-script.sh")
+    user_data_replace_on_change = true
+
+    tags = {
+        Name = "${var.env_prefix}-server"
+    }
 }
 ```
 
 #### `modules/webserver/variables.tf`
 ```hcl
-variable "env_prefix" {}
-variable "subnet_id" {}
-variable "instance_type" {}
-variable "public_key_location" {}
+variable vpc_id {}
+variable my_ip {}
+variable env_prefix {}
+variable image_name {}
+variable public_key_location {}
+variable instance_type {}
+variable subnet_id {}
+variable avail_zone {}
 ```
 
 ---
@@ -215,10 +267,14 @@ Add a `module` block to the root `main.tf` to reference the `webserver` module.
 ```hcl
 module "myapp-server" {
   source = "./modules/webserver"
+  vpc_id = aws_vpc.myapp-vpc.id
+  my_ip = var.my_ip
   env_prefix = var.env_prefix
-  subnet_id = module.myapp-subnet.subnet.id
-  instance_type = var.instance_type
+  image_name = var.image_name
   public_key_location = var.public_key_location
+  instance_type = var.instance_type
+  subnet_id = module.myapp-subnet.subnet.id
+  avail_zone = var.avail_zone
 }
 ```
 
